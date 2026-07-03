@@ -1026,6 +1026,8 @@ void RtcChipDetect(void) {
       Rtc.utc_time = time;
       RtcSync(RtcChip.name);
       AddLog(LOG_LEVEL_INFO, PSTR("RTC: Time restored from %s (" D_UTC_TIME ") %s"), RtcChip.name, GetDateAndTime(DT_UTC).c_str());
+    } else {
+      AddLog(LOG_LEVEL_INFO, PSTR("RTC: %s time invalid, waiting for NTP"), RtcChip.name);
     }
   }
 }
