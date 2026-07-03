@@ -218,12 +218,27 @@ void RV3028Detected(void) {
 #define DS3231_CENTURY      7       // Century bit in Month register
 #define DS3231_DYDT         6       // Day/Date flag bit in alarm Day/Date registers
 
+#define DS1307_CH           7       // Clock Halt bit in Seconds register (DS1307 only)
+
+bool Ds3231IsDs1307 = false;        // Chip at 0x68 identified as DS1307 instead of DS3231
+
 /*-------------------------------------------------------------------------------------------*\
  * Read time from DS3231 and return the epoch time (second since 1-1-1970 00:00)
 \*-------------------------------------------------------------------------------------------*/
 uint32_t DS3231ReadTime(void) {
+  if (Ds3231IsDs1307) {
+    if (I2cRead8(RtcChip.address, DS3231_SECONDS, RtcChip.bus) & _BV(DS1307_CH)) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR("RTC: DS1307 clock halted, time invalid"));
+      return 0;                     // Oscillator disabled (new chip or backup battery removed)
+    }
+  } else {
+    if (I2cRead8(RtcChip.address, DS3231_STATUS, RtcChip.bus) & _BV(DS3231_OSF)) {
+      AddLog(LOG_LEVEL_DEBUG, PSTR("RTC: DS3231 oscillator stop detected, time invalid"));
+      return 0;                     // Oscillator was stopped so time is stale
+    }
+  }
   TIME_T tm;
-  tm.second = Bcd2Dec(I2cRead8(RtcChip.address, DS3231_SECONDS, RtcChip.bus));
+  tm.second = Bcd2Dec(I2cRead8(RtcChip.address, DS3231_SECONDS, RtcChip.bus) & 0x7F);  // Mask DS1307 CH bit
   tm.minute = Bcd2Dec(I2cRead8(RtcChip.address, DS3231_MINUTES, RtcChip.bus));
   tm.hour = Bcd2Dec(I2cRead8(RtcChip.address, DS3231_HOURS, RtcChip.bus) & ~_BV(DS3231_HR1224)); // 24h mode
   tm.day_of_week = I2cRead8(RtcChip.address, DS3231_DAY, RtcChip.bus);
@@ -293,7 +308,10 @@ void DS3231SetTime(uint32_t epoch_time) {
   I2cWrite8(RtcChip.address, DS3231_MONTH, Dec2Bcd(tm.month), RtcChip.bus);
   uint8_t true_year = (tm.year < 30) ? (tm.year + 70) : (tm.year - 30);
   I2cWrite8(RtcChip.address, DS3231_YEAR, Dec2Bcd(true_year), RtcChip.bus);
-  I2cWrite8(RtcChip.address, DS3231_STATUS, I2cRead8(RtcChip.address, DS3231_STATUS, RtcChip.bus) & ~_BV(DS3231_OSF), RtcChip.bus);
+  if (!Ds3231IsDs1307) {            // Register 0x0F is battery-backed RAM on DS1307
+    I2cWrite8(RtcChip.address, DS3231_STATUS, I2cRead8(RtcChip.address, DS3231_STATUS, RtcChip.bus) & ~_BV(DS3231_OSF), RtcChip.bus);
+  }
+  // Writing seconds with bit 7 (CH) cleared (re)starts the DS1307 oscillator
 }
 
 /*-------------------------------------------------------------------------------------------*\
@@ -306,11 +324,19 @@ void DS3231Detected(void) {
       if (!I2cSetDevice(RtcChip.address, RtcChip.bus)) { continue; }
       if (I2cValidRead(RtcChip.address, DS3231_STATUS, 1, RtcChip.bus)) {
         RtcChip.detected = 1;
-        strcpy_P(RtcChip.name, PSTR("DS3231"));
+        // Distinguish DS3231 from DS1307: status register bits 6..4 and 2 always read 0 on
+        // DS3231 while address 0x0F is battery-backed RAM on DS1307 and holds what is written
+        uint8_t status = I2cRead8(RtcChip.address, DS3231_STATUS, RtcChip.bus);
+        I2cWrite8(RtcChip.address, DS3231_STATUS, status | 0x74, RtcChip.bus);
+        Ds3231IsDs1307 = (0x74 == (I2cRead8(RtcChip.address, DS3231_STATUS, RtcChip.bus) & 0x74));
+        I2cWrite8(RtcChip.address, DS3231_STATUS, status, RtcChip.bus);
+        strcpy_P(RtcChip.name, (Ds3231IsDs1307) ? PSTR("DS1307") : PSTR("DS3231"));
         RtcChip.ReadTime = &DS3231ReadTime;
         RtcChip.SetTime = &DS3231SetTime;
 #ifdef DS3231_ENABLE_TEMP
-        RtcChip.ShowSensor = &D3231ShowSensor;
+        if (!Ds3231IsDs1307) {      // DS1307 has no temperature sensor
+          RtcChip.ShowSensor = &D3231ShowSensor;
+        }
 #endif
         RtcChip.mem_size = -1;
         break; 
@@ -992,12 +1018,14 @@ void RtcChipDetect(void) {
   if (!RtcChip.detected) { return; }
 
   I2cSetActiveFound(RtcChip.address, RtcChip.name, RtcChip.bus);
+  AddLog(LOG_LEVEL_INFO, PSTR("RTC: %s detected"), RtcChip.name);
 
   if (Rtc.utc_time < START_VALID_TIME) {                          // Not sync with NTP/GPS (time not valid), so read time
     uint32_t time = RtcChip.ReadTime();                           // Read UTC TIME
     if (time > START_VALID_TIME) {
       Rtc.utc_time = time;
       RtcSync(RtcChip.name);
+      AddLog(LOG_LEVEL_INFO, PSTR("RTC: Time restored from %s (" D_UTC_TIME ") %s"), RtcChip.name, GetDateAndTime(DT_UTC).c_str());
     }
   }
 }
@@ -1006,7 +1034,7 @@ void RtcChipTimeSynced(void) {
   if ((Rtc.utc_time > START_VALID_TIME) &&                        // Valid UTC time
       (abs((int32_t)(Rtc.utc_time - RtcChip.ReadTime())) > 2)) {  // Time has drifted from RTC more than 2 seconds
     RtcChip.SetTime(Rtc.utc_time);                                // Update time
-    AddLog(LOG_LEVEL_DEBUG, PSTR("RTC: %s re-synced (" D_UTC_TIME ") %s"), RtcChip.name, GetDateAndTime(DT_UTC).c_str());
+    AddLog(LOG_LEVEL_INFO, PSTR("RTC: Time written to %s (" D_UTC_TIME ") %s"), RtcChip.name, GetDateAndTime(DT_UTC).c_str());
   }
 }
 
