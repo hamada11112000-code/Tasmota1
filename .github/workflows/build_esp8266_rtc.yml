@@ -20,7 +20,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Install PlatformIO
-        run: pip install -U pioarduino   # same as upstream Tasmota CI (plain platformio breaks on SCons)
+        run: pip install "platformio==6.1.19"   # pinned: newer releases pull SCons 4.11 which breaks this build
       - name: Build tasmota (ESP8266)
         env:
           PYTHONIOENCODING: utf-8
