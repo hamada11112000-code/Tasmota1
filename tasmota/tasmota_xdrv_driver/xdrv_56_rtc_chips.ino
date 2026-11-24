@@ -1069,10 +1069,27 @@ int32_t RtcChipMemWrite(uint8_t *buffer, uint32_t size) {
 #define NTP_MILLIS_OFFSET   50
 
 const char kRtcChipCommands[] PROGMEM = "Rtc|"  // Prefix
-  D_CMND_NTPSERVER;
+  D_CMND_NTPSERVER
+#ifdef FRIDGE_AP_SSID
+  "|FridgeAp"
+#endif
+  ;
 
 void (* const RtcChipCommand[])(void) PROGMEM = {
-  &CmndRtcNtpServer };
+  &CmndRtcNtpServer
+#ifdef FRIDGE_AP_SSID
+  , &CmndRtcFridgeAp
+#endif
+  };
+
+#ifdef FRIDGE_AP_SSID
+void CmndRtcFridgeAp(void) {
+  // RtcFridgeAp: report the fridge access point state
+  Response_P(PSTR("{\"RtcFridgeAp\":{\"Up\":%d,\"Mode\":%d,\"SSId\":\"%s\",\"IP\":\"%_I\",\"Channel\":%d,\"Clients\":%d,\"NtpServer\":%d}}"),
+    FridgeApActive(), WiFi.getMode(), WiFi.softAPSSID().c_str(), (uint32_t)WiFi.softAPIP(),
+    WiFi.channel(), WiFi.softAPgetStationNum(), Settings->sbflag1.local_ntp_server);
+}
+#endif  // FRIDGE_AP_SSID
 
 NtpServer RtcChipTimeServer(PortUdp);
 

@@ -378,17 +378,32 @@ void WiFiSetSleepMode(void)
 \*********************************************************************************************/
 
 bool FridgeApActive(void) {
-  return (WiFi.getMode() & WIFI_AP) && ((uint32_t)WiFi.softAPIP() != 0);
+  // Up only if the AP part of the radio is on AND it really carries our SSID.
+  // (Mode bit + IP alone stay true after a failed softAP() and would stop retries.)
+  return (WiFi.getMode() & WIFI_AP) &&
+         ((uint32_t)WiFi.softAPIP() != 0) &&
+         WiFi.softAPSSID().equals(FRIDGE_AP_SSID);
 }
 
 void FridgeApEnsure(void) {
   if (FridgeApActive()) { return; }
+  static uint32_t last_log = 0;
+
   if (WiFi.getMode() != WIFI_AP_STA) {
     WifiSetMode(WIFI_AP_STA);
   }
-  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
-  if (WiFi.softAP(FRIDGE_AP_SSID, FRIDGE_AP_PASS)) {
-    AddLog(LOG_LEVEL_INFO, PSTR("WIF: Fridge AP '%s' up at %_I"), FRIDGE_AP_SSID, (uint32_t)WiFi.softAPIP());
+  // The AP must share the station's channel while the station is connected.
+  int channel = (WiFi.status() == WL_CONNECTED) ? WiFi.channel() : 1;
+  if ((channel < 1) || (channel > 13)) { channel = 1; }
+  bool ok = WiFi.softAP(FRIDGE_AP_SSID, FRIDGE_AP_PASS, channel, 0, 4);
+
+  if (ok && FridgeApActive()) {
+    AddLog(LOG_LEVEL_INFO, PSTR("WIF: Fridge AP '%s' up at %_I channel %d"),
+      FRIDGE_AP_SSID, (uint32_t)WiFi.softAPIP(), channel);
+  } else if (millis() - last_log > 30000) {   // Log failures, at most every 30 s
+    last_log = millis();
+    AddLog(LOG_LEVEL_INFO, PSTR("WIF: Fridge AP start failed (softAP %d, mode %d, channel %d, ssid '%s')"),
+      ok, WiFi.getMode(), channel, WiFi.softAPSSID().c_str());
   }
 }
 #endif  // FRIDGE_AP_SSID
