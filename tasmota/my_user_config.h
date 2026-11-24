@@ -814,6 +814,12 @@
 #ifdef ESP8266
   #define USE_RTC_CHIPS                          // Enable RTC chip support and NTP server - Select only one
     #define USE_DS3231                           // [I2cDriver26] Enable DS3231 and DS1307 RTC (I2C address 0x68) (+1k2 code)
+    #define RTC_NTP_SERVER                       // Enable NTP server from RTC time (command RtcNtpServer 1) (+0k8 code)
+  // Fridge time master: always broadcast this access point next to the normal station
+  // connection, so other devices can join it and get the RTC time without any phone/router.
+  // Clients get 192.168.4.x; NTP server is 192.168.4.1. Password must be 8+ characters.
+  #define FRIDGE_AP_SSID      "Fridge-Net"
+  #define FRIDGE_AP_PASS      "Fridge@2026"
 #endif  // ESP8266
 //  #define USE_RTC_CHIPS                          // Enable RTC chip support and NTP server - Select only one
 //    #define USE_RV3028                           // [I2cDriver94] Enable RV3028 RTC chip support (I2C address 0x52)

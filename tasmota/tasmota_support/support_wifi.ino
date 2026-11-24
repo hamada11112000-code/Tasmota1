@@ -368,6 +368,31 @@ void WiFiSetSleepMode(void)
  * - Logs connection details for troubleshooting
  * - Optionally waits for connection result based on settings
  */
+#ifdef FRIDGE_AP_SSID
+/*********************************************************************************************\
+ * Fridge time master: permanent access point (AP + STA)
+ *
+ * Keeps FRIDGE_AP_SSID up at all times, alongside the normal station connection, so another
+ * Sonoff can join it after a power cut and get the time from this device's RTC via NTP
+ * (RtcNtpServer 1), with no phone or router present.
+\*********************************************************************************************/
+
+bool FridgeApActive(void) {
+  return (WiFi.getMode() & WIFI_AP) && ((uint32_t)WiFi.softAPIP() != 0);
+}
+
+void FridgeApEnsure(void) {
+  if (FridgeApActive()) { return; }
+  if (WiFi.getMode() != WIFI_AP_STA) {
+    WifiSetMode(WIFI_AP_STA);
+  }
+  WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0));
+  if (WiFi.softAP(FRIDGE_AP_SSID, FRIDGE_AP_PASS)) {
+    AddLog(LOG_LEVEL_INFO, PSTR("WIF: Fridge AP '%s' up at %_I"), FRIDGE_AP_SSID, (uint32_t)WiFi.softAPIP());
+  }
+}
+#endif  // FRIDGE_AP_SSID
+
 void WifiBegin(uint8_t flag, uint8_t channel) {
 #ifdef USE_EMULATION
   UdpDisconnect();
@@ -378,6 +403,13 @@ void WifiBegin(uint8_t flag, uint8_t channel) {
   WiFi.enableIPv6(true);
 #endif
 
+#ifdef FRIDGE_AP_SSID
+  if (FridgeApActive()) {
+    // Reconnect the station only; keep the fridge access point (and its clients) running.
+    WiFi.disconnect(false);
+    delay(200);
+  } else {
+#endif  // FRIDGE_AP_SSID
 #ifdef USE_WIFI_RANGE_EXTENDER
   if (WiFi.getMode() != WIFI_AP_STA || !RgxApUp()) {  // Preserve range extender connections (#17103)
 #endif  // USE_WIFI_RANGE_EXTENDER
@@ -390,6 +422,9 @@ void WifiBegin(uint8_t flag, uint8_t channel) {
 #ifdef USE_WIFI_RANGE_EXTENDER
   }
 #endif  // USE_WIFI_RANGE_EXTENDER
+#ifdef FRIDGE_AP_SSID
+  }
+#endif  // FRIDGE_AP_SSID
 
   WiFiSetSleepMode();
   WifiSetOutputPower();

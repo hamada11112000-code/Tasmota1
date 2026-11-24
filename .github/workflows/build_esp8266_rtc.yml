@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - claude/tasmota-rtc-esp8266-gcb1sl
+      - claude/tasmota-rtc-ap-ntp
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -27,3 +31,13 @@ jobs:
         with:
           name: tasmota-esp8266-rtc
           path: ./build_output
+      - name: Commit built firmware to the branch
+        if: github.ref_name == 'claude/tasmota-rtc-ap-ntp'
+        run: |
+          mkdir -p built-firmware
+          cp build_output/firmware/tasmota.bin build_output/firmware/tasmota.bin.gz built-firmware/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f built-firmware
+          git commit -m "Built firmware for ${GITHUB_SHA::7} [skip ci]"
+          git push

@@ -1079,7 +1079,13 @@ NtpServer RtcChipTimeServer(PortUdp);
 void RtcChipEverySecond(void) {
   static bool ntp_server_started = false;
 
+#ifdef FRIDGE_AP_SSID
+  FridgeApEnsure();   // Keep the fridge access point up every second
+  // Serve NTP on our own access point even when the station has no network.
+  if (TasmotaGlobal.global_state.network_down && !FridgeApActive()) { return; }
+#else
   if (TasmotaGlobal.global_state.network_down) { return; }  // Exception on ESP32 if network is down (#17338)
+#endif  // FRIDGE_AP_SSID
 
   if (Settings->sbflag1.local_ntp_server && (Rtc.utc_time > START_VALID_TIME)) {
     if (!ntp_server_started) {
@@ -1095,7 +1101,11 @@ void RtcChipEverySecond(void) {
 
 void CmndRtcNtpServer(void) {
   // RtcChipNtpServer 0 or 1
+#ifdef FRIDGE_AP_SSID
+  if ((XdrvMailbox.payload >= 0) && (!TasmotaGlobal.global_state.network_down || FridgeApActive())) {
+#else
   if ((XdrvMailbox.payload >= 0) && !TasmotaGlobal.global_state.network_down) {
+#endif  // FRIDGE_AP_SSID
     Settings->sbflag1.local_ntp_server = 0;
     if ((XdrvMailbox.payload &1) && RtcChipTimeServer.beginListening()) {
       Settings->sbflag1.local_ntp_server = 1;
