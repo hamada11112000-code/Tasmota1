@@ -1097,7 +1097,12 @@ void RtcChipEverySecond(void) {
   static bool ntp_server_started = false;
 
 #ifdef FRIDGE_AP_SSID
-  FridgeApEnsure();   // Keep the fridge access point up every second
+  // Only the Sonoff that actually has an RTC module broadcasts Fridge-Net; the same
+  // firmware on a Sonoff without RTC must stay a normal client (two APs with the
+  // same SSID/IP made phones and the fridge Sonoff hop between them).
+  if (RtcChip.detected) {
+    FridgeApEnsure();   // Keep the fridge access point up every second
+  }
   // Serve NTP on our own access point even when the station has no network.
   if (TasmotaGlobal.global_state.network_down && !FridgeApActive()) { return; }
 #else
